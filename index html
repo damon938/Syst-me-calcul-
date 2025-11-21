@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Eryndor Combat Helper</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Arial;margin:16px;background:#0b1020;color:#e6eef8}
+    .card{background:#0f1724;padding:16px;border-radius:12px;box-shadow:0 6px 20px rgba(2,6,23,.6);margin-bottom:12px}
+    label{display:block;margin-top:8px;font-size:13px}
+    input,select{width:100%;padding:8px;border-radius:8px;border:1px solid #213241;background:#071023;color:#e6eef8}
+    button{margin-top:12px;padding:10px 14px;border-radius:10px;border:none;background:#2b7cff;color:white;font-weight:600}
+    .result{margin-top:12px;padding:10px;border-radius:8px;background:#071826}
+    .row{display:flex;gap:8px}
+    .col{flex:1}
+    small{color:#9cb0c8}
+  </style>
+</head>
+<body>
+  <h2>Eryndor — Calculateur de coûts (PV / PM / PF)</h2>
+  <div class="card">
+    <strong>Stats du personnage</strong>
+    <div class="row">
+      <div class="col">
+        <label>PV actuels</label>
+        <input id="pv" type="number" value="100">
+      </div>
+      <div class="col">
+        <label>PM actuels</label>
+        <input id="pm" type="number" value="50">
+      </div>
+      <div class="col">
+        <label>PF actuels</label>
+        <input id="pf" type="number" value="30">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <label>Force</label>
+        <input id="force" type="number" value="6">
+      </div>
+      <div class="col">
+        <label>Magie</label>
+        <input id="magie" type="number" value="6">
+      </div>
+      <div class="col">
+        <label>Endurance</label>
+        <input id="endurance" type="number" value="6">
+      </div>
+    </div>
+    <div class="row">
+      <div class="col">
+        <label>Défense / Agilité (pour dégâts reçus)</label>
+        <input id="defense" type="number" value="5">
+      </div>
+      <div class="col">
+        <label>Type d'action</label>
+        <select id="actionType">
+          <option value="phys_simple">Attaque physique — simple</option>
+          <option value="phys_tech">Attaque physique — technique</option>
+          <option value="phys_ult">Attaque physique — ultime</option>
+          <option value="sort_faible">Sort — faible</option>
+          <option value="sort_moyen">Sort — moyen</option>
+          <option value="sort_fort">Sort — fort</option>
+          <option value="damage_faible">Subit dégât — faible</option>
+          <option value="damage_moyen">Subit dégât — moyen</option>
+          <option value="damage_fort">Subit dégât — fort</option>
+        </select>
+      </div>
+      <div class="col">
+        <label>Résultat</label>
+        <select id="result">
+          <option value="crit">Réussite critique</option>
+          <option value="normal" selected>Réussite normale</option>
+          <option value="fail">Échec</option>
+          <option value="critfail">Échec critique</option>
+        </select>
+      </div>
+    </div>
+    <button id="calc">Calculer coûts</button>
+
+    <div class="result" id="output" style="display:none"></div>
+  </div>
+
+  <script>
+    function clamp(n, a, b){return Math.max(a, Math.min(b, n))}
+
+    function costForSpell(magic, tier){
+      // tier: 'faible','moyen','fort'
+      if(magic <=3) return tier==='faible'?4:(tier==='moyen'?7:12);
+      if(magic <=6) return tier==='faible'?3:(tier==='moyen'?6:10);
+      return tier==='faible'?2:(tier==='moyen'?5:8);
+    }
+
+    function costForPhys(sumFE, kind){
+      // sumFE = Force + Endurance
+      // kind: 'simple','tech','ult'
+      if(sumFE <=5) return kind==='simple'?2:(kind==='tech'?4:6);
+      if(sumFE <=10) return kind==='simple'?1:(kind==='tech'?3:5);
+      return kind==='simple'?0:(kind==='tech'?2:4);
+    }
+
+    function damageTaken(def, tier){
+      // tier: 'faible','moyen','fort'
+      if(def <=3) return tier==='faible'?10:(tier==='moyen'?20:30);
+      if(def <=6) return tier==='faible'?8:(tier==='moyen'?15:25);
+      return tier==='faible'?5:(tier==='moyen'?10:20);
+    }
+
+    function applyResultModifier(value, result, isDamage){
+      // result: crit, normal, fail, critfail
+      if(result==='crit') return Math.ceil(value*0.5);
+      if(result==='normal') return value;
+      if(result==='fail') return value*2;
+      // critfail
+      return isDamage ? Math.ceil(value*2.5) : Math.ceil(value*2);
+    }
+
+    document.getElementById('calc').addEventListener('click', ()=>{
+      const pv = parseInt(document.getElementById('pv').value)||0;
+      const pm = parseInt(document.getElementById('pm').value)||0;
+      const pf = parseInt(document.getElementById('pf').value)||0;
+      const force = clamp(parseInt(document.getElementById('force').value)||0,0,100);
+      const magie = clamp(parseInt(document.getElementById('magie').value)||0,0,100);
+      const endurance = clamp(parseInt(document.getElementById('endurance').value)||0,0,100);
+      const def = clamp(parseInt(document.getElementById('defense').value)||0,100,0);
+      const action = document.getElementById('actionType').value;
+      const result = document.getElementById('result').value;
+
+      let deltaPV = 0, deltaPM = 0, deltaPF = 0;
+
+      if(action.startsWith('sort_')){
+        const tier = action.split('_')[1];
+        const base = costForSpell(magie, tier);
+        deltaPM = applyResultModifier(base, result, false);
+      } else if(action.startsWith('phys_')){
+        const kind = action.split('_')[1];
+        const base = costForPhys(force+endurance, kind);
+        deltaPF = applyResultModifier(base, result, false);
+      } else if(action.startsWith('damage_')){
+        const tier = action.split('_')[1];
+        const base = damageTaken(def, tier);
+        deltaPV = applyResultModifier(base, result, true);
+      }
+
+      const newPV = Math.max(0, pv - deltaPV);
+      const newPM = Math.max(0, pm - deltaPM);
+      const newPF = Math.max(0, pf - deltaPF);
+
+      const out = document.getElementById('output');
+      out.style.display = 'block';
+      out.innerHTML = `
+        <strong>Résultat :</strong>
+        <p>PV perdus : <strong>${deltaPV}</strong> → PV restants : <strong>${newPV}</strong></p>
+        <p>PM dépensés : <strong>${deltaPM}</strong> → PM restants : <strong>${newPM}</strong></p>
+        <p>PF dépensés : <strong>${deltaPF}</strong> → PF restants : <strong>${newPF}</strong></p>
+        <small>Formules : basées sur le système d'Eryndor (modifiable). Résultat = coût de base × modificateur (crit/échec).</small>
+      `;
+    });
+  </script>
+</body>
+</html>
